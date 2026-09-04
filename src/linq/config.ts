@@ -19,6 +19,24 @@ export const LinqAccountConfigSchema: z.ZodType<Record<string, unknown>> = z.laz
       // TODO: default to "pairing" once durable Linq pairing setup is supported.
       dmPolicy: z.enum(["pairing", "allowlist", "open", "disabled"]).default("open").optional(),
       allowFrom: z.array(allowFromEntrySchema).optional(),
+      // Group chats. Who may trigger the assistant (groupPolicy /
+      // groupAllowFrom, falling back to allowFrom), per-chat settings, and how
+      // many unanswered lines ride along as context on the next turn.
+      groupPolicy: z.enum(["open", "allowlist", "disabled"]).optional(),
+      groupAllowFrom: z.array(allowFromEntrySchema).optional(),
+      groups: z
+        .record(
+          z.string(),
+          z
+            .object({
+              requireMention: z.boolean().optional(),
+              enabled: z.boolean().optional(),
+              participants: z.record(z.string(), z.string()).optional(),
+            })
+            .strict(),
+        )
+        .optional(),
+      historyLimit: z.number().int().min(0).max(500).optional(),
       webhookUrl: z.string().url().optional(),
       webhookSecret: z.union([z.string().min(1), secretRefSchema]).optional(),
       webhookPath: z.string().regex(/^\/[A-Za-z0-9/_-]*$/u).default("/linq-webhook").optional(),
@@ -63,6 +81,21 @@ export const LinqConfigJsonSchema = {
     fromPhone: { type: "string", pattern: "^\\+[1-9]\\d{6,14}$" },
     dmPolicy: { enum: ["pairing", "allowlist", "open", "disabled"], default: "open" },
     allowFrom: { type: "array", items: { anyOf: [{ type: "string" }, { type: "number" }] } },
+    groupPolicy: { enum: ["open", "allowlist", "disabled"] },
+    groupAllowFrom: { type: "array", items: { anyOf: [{ type: "string" }, { type: "number" }] } },
+    groups: {
+      type: "object",
+      additionalProperties: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          requireMention: { type: "boolean" },
+          enabled: { type: "boolean" },
+          participants: { type: "object", additionalProperties: { type: "string" } },
+        },
+      },
+    },
+    historyLimit: { type: "integer", minimum: 0, maximum: 500 },
     webhookUrl: { type: "string", format: "uri" },
     webhookSecret: { anyOf: [{ type: "string", minLength: 1 }, { $ref: "#/$defs/secretRef" }] },
     webhookPath: { type: "string", pattern: "^/[A-Za-z0-9/_-]*$", default: "/linq-webhook" },

@@ -17,6 +17,21 @@ export type LinqMessageReceivedData = {
   is_from_me: boolean;
   service: "iMessage" | "SMS" | "RCS";
   message: LinqIncomingMessage;
+  /** A group chat: `from` is one participant, `chat_id` is the whole chat. */
+  is_group?: boolean;
+  /** Participant handles as the provider last reported them. */
+  participants?: string[];
+  chat_display_name?: string;
+};
+
+/** Per-group settings, keyed by the chat id the provider delivers. */
+export type LinqGroupConfig = {
+  /** Answer only when named (mention patterns) or replied to. Default true. */
+  requireMention?: boolean;
+  /** false ⇒ the assistant hears nothing from this chat (muted at the cell). */
+  enabled?: boolean;
+  /** Handle → display name, so the agent sees "Ben", not a phone number. */
+  participants?: Record<string, string>;
 };
 
 export type LinqIncomingMessage = {
@@ -91,9 +106,13 @@ export type LinqAccountConfig = {
   dmPolicy?: "pairing" | "allowlist" | "open" | "disabled";
   /** Allowed sender IDs (phone numbers or "*"). */
   allowFrom?: Array<string | number>;
-  /** Group chat security policy. */
+  /**
+   * Who may make the assistant answer in a group chat. `allowlist` (default)
+   * means `groupAllowFrom`, falling back to `allowFrom` — the roster; `open`
+   * lets anyone in the chat trigger it; `disabled` mutes every group.
+   */
   groupPolicy?: "open" | "allowlist" | "disabled";
-  /** Allowed group sender IDs. */
+  /** Allowed group sender IDs; falls back to allowFrom when unset. */
   groupAllowFrom?: Array<string | number>;
   /** Max media size in MB (default: 10). */
   mediaMaxMb?: number;
@@ -109,12 +128,12 @@ export type LinqAccountConfig = {
   webhookPath?: string;
   /** Deprecated: OpenClaw owns plugin route binding. */
   webhookHost?: string;
-  /** History limit for group chats. */
+  /** How many unanswered group lines are kept as context for the next turn (default 50). */
   historyLimit?: number;
   /** Block streaming responses. */
   blockStreaming?: boolean;
   /** Group configs keyed by chat_id. */
-  groups?: Record<string, unknown>;
+  groups?: Record<string, LinqGroupConfig>;
   /** Per-account sub-accounts. */
   accounts?: Record<string, LinqAccountConfig>;
   /** Preferred default account id. */

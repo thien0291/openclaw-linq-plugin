@@ -55,6 +55,52 @@
           ]
         }
       },
+      "groupPolicy": {
+        "enum": [
+          "open",
+          "allowlist",
+          "disabled"
+        ]
+      },
+      "groupAllowFrom": {
+        "type": "array",
+        "items": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "groups": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requireMention": {
+              "type": "boolean"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "participants": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "historyLimit": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 500
+      },
       "webhookUrl": {
         "type": "string",
         "format": "uri"
@@ -190,6 +236,52 @@
                 }
               ]
             }
+          },
+          "groupPolicy": {
+            "enum": [
+              "open",
+              "allowlist",
+              "disabled"
+            ]
+          },
+          "groupAllowFrom": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          "groups": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "requireMention": {
+                  "type": "boolean"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "participants": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "historyLimit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
           },
           "webhookUrl": {
             "type": "string",
