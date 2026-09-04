@@ -599,7 +599,7 @@ function $constructor(name, initializer3, params) {
   Object.defineProperty(_, "name", { value: name });
   return _;
 }
-var $brand = Symbol("zod_brand");
+var $brand = /* @__PURE__ */ Symbol("zod_brand");
 var $ZodAsyncError = class extends Error {
   constructor() {
     super(`Encountered Promise during synchronous parse. Use .parseAsync() instead.`);
@@ -10342,8 +10342,8 @@ function yo_default() {
 
 // node_modules/zod/v4/core/registries.js
 var _a2;
-var $output = Symbol("ZodOutput");
-var $input = Symbol("ZodInput");
+var $output = /* @__PURE__ */ Symbol("ZodOutput");
+var $input = /* @__PURE__ */ Symbol("ZodInput");
 var $ZodRegistry = class {
   constructor() {
     this._map = /* @__PURE__ */ new WeakMap();
@@ -11380,7 +11380,7 @@ function _stringbool(Classes, _params) {
     type: "pipe",
     in: stringSchema,
     out: booleanSchema,
-    transform: (input, payload) => {
+    transform: ((input, payload) => {
       let data = input;
       if (params.case !== "sensitive")
         data = data.toLowerCase();
@@ -11399,14 +11399,14 @@ function _stringbool(Classes, _params) {
         });
         return {};
       }
-    },
-    reverseTransform: (input, _payload) => {
+    }),
+    reverseTransform: ((input, _payload) => {
       if (input === true) {
         return truthyArray[0] || "true";
       } else {
         return falsyArray[0] || "false";
       }
-    },
+    }),
     error: params.error
   });
   return codec2;
@@ -14552,6 +14552,20 @@ var LinqAccountConfigSchema = external_exports.lazy(
     // TODO: default to "pairing" once durable Linq pairing setup is supported.
     dmPolicy: external_exports.enum(["pairing", "allowlist", "open", "disabled"]).default("open").optional(),
     allowFrom: external_exports.array(allowFromEntrySchema).optional(),
+    // Group chats. Who may trigger the assistant (groupPolicy /
+    // groupAllowFrom, falling back to allowFrom), per-chat settings, and how
+    // many unanswered lines ride along as context on the next turn.
+    groupPolicy: external_exports.enum(["open", "allowlist", "disabled"]).optional(),
+    groupAllowFrom: external_exports.array(allowFromEntrySchema).optional(),
+    groups: external_exports.record(
+      external_exports.string(),
+      external_exports.object({
+        requireMention: external_exports.boolean().optional(),
+        enabled: external_exports.boolean().optional(),
+        participants: external_exports.record(external_exports.string(), external_exports.string()).optional()
+      }).strict()
+    ).optional(),
+    historyLimit: external_exports.number().int().min(0).max(500).optional(),
     webhookUrl: external_exports.string().url().optional(),
     webhookSecret: external_exports.union([external_exports.string().min(1), secretRefSchema]).optional(),
     webhookPath: external_exports.string().regex(/^\/[A-Za-z0-9/_-]*$/u).default("/linq-webhook").optional(),
@@ -15166,8 +15180,29 @@ function normalizeLinqMessageReceivedData(raw) {
       id: data.id,
       parts: data.parts,
       reply_to: data.reply_to
-    }
+    },
+    ...groupFieldsOf(data)
   };
+}
+function groupFieldsOf(data) {
+  const out = {};
+  if (data.is_group === true) {
+    out.is_group = true;
+  }
+  const raw = data.participants ?? data.chat?.handles;
+  if (Array.isArray(raw)) {
+    const handles = raw.map(
+      (entry) => typeof entry === "string" ? entry : entry && typeof entry === "object" && typeof entry.handle === "string" ? entry.handle : ""
+    ).map((h) => h.trim()).filter(Boolean);
+    if (handles.length > 0) {
+      out.participants = handles;
+    }
+  }
+  const name = data.chat_display_name ?? data.chat?.display_name;
+  if (typeof name === "string" && name.trim()) {
+    out.chat_display_name = name.trim();
+  }
+  return out;
 }
 function isAllowedLinqSender(allowFrom, sender) {
   if (allowFrom.includes("*")) {
@@ -15178,6 +15213,50 @@ function isAllowedLinqSender(allowFrom, sender) {
     const norm = entry.replace(/[\s()-]/g, "").toLowerCase();
     return norm === normalized;
   });
+}
+function compileMentionPatterns(raw) {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out = [];
+  for (const pattern of raw) {
+    if (typeof pattern !== "string" || !pattern.trim()) {
+      continue;
+    }
+    try {
+      out.push(new RegExp(pattern, "i"));
+    } catch {
+    }
+  }
+  return out;
+}
+function decideGroupTurn(params) {
+  if (params.groupPolicy === "disabled") {
+    return { authorized: false, mentioned: false, triggers: false, reason: "groups are disabled" };
+  }
+  const authorized = params.groupPolicy === "open" ? true : isAllowedLinqSender(params.roster, params.sender);
+  const named = params.mentionPatterns.some((re) => re.test(params.text));
+  const replied = Boolean(params.replyToId && params.ownMessageIds.has(params.replyToId));
+  const mentioned = !params.requireMention || named || replied;
+  const triggers = authorized && mentioned;
+  const reason = !authorized ? "sender is not on the roster: context only" : !mentioned ? "not addressed: context only" : "addressed by a roster member";
+  return { authorized, mentioned, triggers, reason };
+}
+function buildGroupBodyForAgent(context, current) {
+  const fmt = (line) => `${line.at} ${line.name}: ${line.text}`;
+  const parts = [];
+  if (context.length > 0) {
+    parts.push("[Chat messages since your last reply - for context]", ...context.map(fmt), "");
+  }
+  parts.push("[Current message]", `${current.name}: ${current.text}`);
+  return parts.join("\n");
+}
+function clockOf(iso) {
+  const date5 = iso ? new Date(iso) : /* @__PURE__ */ new Date();
+  if (Number.isNaN(date5.getTime())) {
+    return "--:--";
+  }
+  return date5.toISOString().slice(11, 16);
 }
 async function monitorLinqProvider(opts = {}) {
   const rt = getLinqRuntime();
@@ -15198,6 +15277,12 @@ async function monitorLinqProvider(opts = {}) {
   const webhookSecret = accountInfo.webhookSecret;
   const webhookPath = linqCfg.webhookPath?.trim() || "/linq-webhook";
   const fromPhone = accountInfo.fromPhone;
+  const groupBuffers = /* @__PURE__ */ new Map();
+  const ownMessageIds = /* @__PURE__ */ new Map();
+  const mentionPatterns = compileMentionPatterns(
+    cfg.messages?.groupChat?.mentionPatterns
+  );
+  const historyLimit = typeof linqCfg.historyLimit === "number" ? linqCfg.historyLimit : 50;
   const inboundDebounceMs = rt.channel.debounce.resolveInboundDebounceMs({ cfg, channel: "linq" });
   const inboundDebouncer = rt.channel.debounce.createInboundDebouncer({
     debounceMs: inboundDebounceMs,
@@ -15242,6 +15327,154 @@ async function monitorLinqProvider(opts = {}) {
       opts.runtime?.error?.(`linq debounce flush failed: ${String(err)}`);
     }
   });
+  async function handleGroupMessage(data, sender) {
+    const chatId = data.chat_id;
+    const text = extractTextContent(data.message.parts);
+    const media = extractMediaUrls(
+      data.message.parts
+    );
+    const bodyText = text.trim() || (media.length > 0 ? "<media:image>" : "");
+    if (!bodyText) {
+      return;
+    }
+    if (linqCfg.dmPolicy === "disabled") {
+      return;
+    }
+    const groupCfg = linqCfg.groups?.[chatId];
+    if (groupCfg?.enabled === false) {
+      logVerbose(`linq group ${chatId}: muted in config`);
+      return;
+    }
+    const names = groupCfg?.participants ?? {};
+    const nameOf = (handle) => names[handle] ?? handle;
+    const line = { at: clockOf(data.received_at), from: sender, name: nameOf(sender), text: bodyText };
+    let storeAllowFrom = [];
+    try {
+      storeAllowFrom = await rt.channel.pairing.readAllowFromStore?.({
+        channel: "linq",
+        accountId: accountInfo.accountId
+      }) ?? [];
+    } catch {
+      storeAllowFrom = [];
+    }
+    const key = `${accountInfo.accountId}:${chatId}`;
+    const buffer = groupBuffers.get(key) ?? [];
+    buffer.push(line);
+    while (buffer.length > Math.max(historyLimit, 1)) {
+      buffer.shift();
+    }
+    groupBuffers.set(key, buffer);
+    const myIndex = buffer.length - 1;
+    const explicitRoster = normalizeAllowList(linqCfg.groupAllowFrom);
+    const roster = explicitRoster.length > 0 ? explicitRoster : Array.from(/* @__PURE__ */ new Set([...allowFrom, ...storeAllowFrom])).map((v) => String(v).trim()).filter(Boolean);
+    const own = ownMessageIds.get(key) ?? /* @__PURE__ */ new Set();
+    const decision = decideGroupTurn({
+      sender,
+      text: bodyText,
+      replyToId: data.message.reply_to?.message_id,
+      groupPolicy: linqCfg.groupPolicy,
+      roster,
+      requireMention: groupCfg?.requireMention ?? true,
+      mentionPatterns,
+      ownMessageIds: own
+    });
+    logVerbose(`linq group ${chatId}: ${sender} \u2014 ${decision.reason}`);
+    if (!decision.triggers) {
+      return;
+    }
+    const context = buffer.slice(0, myIndex);
+    buffer.splice(0, myIndex + 1);
+    markAsReadLinq(chatId, token);
+    startTypingLinq(chatId, token);
+    const route = rt.channel.routing.resolveAgentRoute({
+      cfg,
+      channel: "linq",
+      accountId: accountInfo.accountId,
+      peer: { kind: "group", id: chatId }
+    });
+    const bodyForAgent = buildGroupBodyForAgent(context, line);
+    const createdAt = data.received_at ? Date.parse(data.received_at) : void 0;
+    const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, { agentId: route.agentId });
+    const envelopeOptions = rt.channel.reply.resolveEnvelopeFormatOptions(cfg);
+    const previousTimestamp = rt.channel.session.readSessionUpdatedAt({
+      storePath,
+      sessionKey: route.sessionKey
+    });
+    const participantsLabel = (data.participants ?? []).map(nameOf).join(", ");
+    const conversationLabel = data.chat_display_name || participantsLabel || chatId;
+    const body = rt.channel.reply.formatAgentEnvelope({
+      channel: "Linq iMessage",
+      from: conversationLabel,
+      timestamp: createdAt,
+      body: bodyForAgent,
+      chatType: "group",
+      sender: { name: line.name, id: sender },
+      previousTimestamp,
+      envelope: envelopeOptions
+    });
+    const ctxPayload = rt.channel.reply.finalizeInboundContext({
+      Body: body,
+      BodyForAgent: bodyForAgent,
+      RawBody: bodyText,
+      CommandBody: bodyText,
+      From: `linq:${sender}`,
+      To: chatId,
+      SessionKey: route.sessionKey,
+      AccountId: route.accountId,
+      ChatType: "group",
+      ConversationLabel: conversationLabel,
+      SenderName: line.name,
+      SenderId: sender,
+      Provider: "linq",
+      Surface: "linq",
+      MessageSid: data.message.id,
+      ReplyToId: data.message.reply_to?.message_id,
+      Timestamp: createdAt,
+      MediaUrl: media[0]?.url,
+      MediaType: media[0]?.mimeType,
+      MediaUrls: media.length > 0 ? media.map((m) => m.url) : void 0,
+      MediaTypes: media.length > 0 ? media.map((m) => m.mimeType) : void 0,
+      WasMentioned: true,
+      CommandAuthorized: decision.authorized,
+      OriginatingChannel: "linq",
+      OriginatingTo: chatId
+    });
+    await rt.channel.session.recordInboundSession({
+      storePath,
+      sessionKey: ctxPayload.SessionKey ?? route.sessionKey,
+      ctx: ctxPayload,
+      onRecordError: (err) => {
+        logVerbose(`linq: failed updating session meta: ${String(err)}`);
+      }
+    });
+    logVerbose(`linq group inbound: chatId=${chatId} from=${sender} context=${context.length}`);
+    const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({
+      cfg,
+      agentId: route.agentId,
+      channel: "linq",
+      accountId: route.accountId
+    });
+    await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+      ctx: ctxPayload,
+      cfg,
+      dispatcherOptions: {
+        ...prefixOptions,
+        deliver: async (payload) => {
+          const replyText = typeof payload === "string" ? payload : payload.text ?? "";
+          if (replyText) {
+            const receipt = await sendMessageLinq(`linq:chat:${chatId}`, replyText, {
+              token,
+              accountId: accountInfo.accountId
+            });
+            if (receipt?.messageId) {
+              own.add(receipt.messageId);
+              ownMessageIds.set(key, own);
+            }
+          }
+        }
+      }
+    });
+  }
   async function handleMessage(data) {
     const sender = data.from?.trim();
     if (!sender) {
@@ -15252,6 +15485,10 @@ async function monitorLinqProvider(opts = {}) {
     }
     if (fromPhone && data.recipient_phone !== fromPhone) {
       logVerbose(`linq: skipping message to ${data.recipient_phone} (not ${fromPhone})`);
+      return;
+    }
+    if (data.is_group) {
+      await handleGroupMessage(data, sender);
       return;
     }
     const chatId = data.chat_id;

@@ -1,14 +1,15 @@
 {
   "name": "openclaw-linq-plugin",
   "version": "1.0.0",
-  "description": "Linq iMessage channel plugin for OpenClaw — real iMessage over API, no Mac required",
+  "description": "Linq iMessage channel plugin for OpenClaw \u2014 real iMessage over API, no Mac required",
   "type": "module",
   "main": "dist/index.js",
   "license": "MIT",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "build": "esbuild index.ts setup-entry.ts --bundle --format=esm --platform=node --outdir=dist --external:openclaw --external:openclaw/* --external:node:*",
+    "check": "npm run typecheck && npm run test && npm run build",
     "test": "vitest run",
-    "check": "npm run typecheck && npm run test"
+    "typecheck": "tsc --noEmit"
   },
   "repository": {
     "type": "git",
@@ -31,6 +32,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.30",
+    "esbuild": "^0.27.7",
     "typescript": "^5.8.3",
     "vitest": "^3.2.2"
   },
