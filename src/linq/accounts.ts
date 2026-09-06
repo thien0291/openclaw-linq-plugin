@@ -32,8 +32,16 @@ export function listLinqAccountIds(cfg: OpenClawConfig): string[] {
     | undefined;
   const ids = listConfiguredAccountIds(cfg);
   const defaultAccount = linqSection?.defaultAccount?.trim();
+  const hasBaseAccount = Boolean(
+    linqSection?.apiToken ||
+      linqSection?.tokenFile?.trim() ||
+      process.env.LINQ_API_TOKEN?.trim(),
+  );
   if (ids.length === 0) {
     return [DEFAULT_ACCOUNT_ID];
+  }
+  if (hasBaseAccount && !ids.includes(DEFAULT_ACCOUNT_ID)) {
+    ids.push(DEFAULT_ACCOUNT_ID);
   }
   if (defaultAccount && !ids.includes(defaultAccount)) {
     ids.push(defaultAccount);

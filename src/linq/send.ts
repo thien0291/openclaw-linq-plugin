@@ -35,16 +35,17 @@ export type LinqSendOpts = {
   config?: OpenClawConfig;
   account?: ResolvedLinqAccount;
   idempotencyKey?: string;
+  apiBase?: string;
 };
 
-function buildSendUrl(target: LinqTarget, fromPhone?: string): string {
+function buildSendUrl(target: LinqTarget, fromPhone?: string, apiBase?: string): string {
   if (target.kind === "phone") {
     if (!fromPhone?.trim()) {
       throw new Error("Linq phone targets require fromPhone on the selected account");
     }
-    return `${linqApiBase()}/chats`;
+    return `${linqApiBase(apiBase)}/chats`;
   }
-  return `${linqApiBase()}/chats/${encodeURIComponent(target.chatId)}/messages`;
+  return `${linqApiBase(apiBase)}/chats/${encodeURIComponent(target.chatId)}/messages`;
 }
 
 function buildSendBody(
@@ -101,7 +102,11 @@ export async function sendMessageLinq(
   if (!resolvedToken) {
     throw new Error("Linq API token not configured");
   }
-  const url = buildSendUrl(target, resolvedAccount?.fromPhone);
+  const url = buildSendUrl(
+    target,
+    resolvedAccount?.fromPhone,
+    opts.apiBase ?? resolvedAccount?.config.apiBase,
+  );
   const headers: Record<string, string> = {
     Authorization: `Bearer ${resolvedToken}`,
     "Content-Type": "application/json",
@@ -159,22 +164,34 @@ async function fireAndForget(url: string, init: RequestInit): Promise<boolean> {
   }
 }
 
-export async function startTypingLinq(chatId: string, token: string): Promise<boolean> {
-  return fireAndForget(`${linqApiBase()}/chats/${encodeURIComponent(chatId)}/typing`, {
+export async function startTypingLinq(
+  chatId: string,
+  token: string,
+  apiBase?: string,
+): Promise<boolean> {
+  return fireAndForget(`${linqApiBase(apiBase)}/chats/${encodeURIComponent(chatId)}/typing`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "User-Agent": UA },
   });
 }
 
-export async function stopTypingLinq(chatId: string, token: string): Promise<boolean> {
-  return fireAndForget(`${linqApiBase()}/chats/${encodeURIComponent(chatId)}/typing`, {
+export async function stopTypingLinq(
+  chatId: string,
+  token: string,
+  apiBase?: string,
+): Promise<boolean> {
+  return fireAndForget(`${linqApiBase(apiBase)}/chats/${encodeURIComponent(chatId)}/typing`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}`, "User-Agent": UA },
   });
 }
 
-export async function markAsReadLinq(chatId: string, token: string): Promise<boolean> {
-  return fireAndForget(`${linqApiBase()}/chats/${encodeURIComponent(chatId)}/read`, {
+export async function markAsReadLinq(
+  chatId: string,
+  token: string,
+  apiBase?: string,
+): Promise<boolean> {
+  return fireAndForget(`${linqApiBase(apiBase)}/chats/${encodeURIComponent(chatId)}/read`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "User-Agent": UA },
   });
@@ -185,8 +202,9 @@ export async function sendReactionLinq(
   type: "love" | "like" | "dislike" | "laugh" | "emphasize" | "question",
   token: string,
   operation: "add" | "remove" = "add",
+  apiBase?: string,
 ): Promise<boolean> {
-  return fireAndForget(`${linqApiBase()}/messages/${encodeURIComponent(messageId)}/reactions`, {
+  return fireAndForget(`${linqApiBase(apiBase)}/messages/${encodeURIComponent(messageId)}/reactions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,

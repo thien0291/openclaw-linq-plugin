@@ -14,6 +14,14 @@
         "type": "string",
         "minLength": 1
       },
+      "service": {
+        "enum": [
+          "iMessage",
+          "WhatsApp",
+          "SMS",
+          "RCS"
+        ]
+      },
       "apiToken": {
         "anyOf": [
           {
@@ -195,6 +203,14 @@
           "name": {
             "type": "string",
             "minLength": 1
+          },
+          "service": {
+            "enum": [
+              "iMessage",
+              "WhatsApp",
+              "SMS",
+              "RCS"
+            ]
           },
           "apiToken": {
             "anyOf": [

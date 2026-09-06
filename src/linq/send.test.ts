@@ -88,6 +88,36 @@ describe("sendMessageLinq", () => {
     );
   });
 
+  it("routes each account through its own API base", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ chat_id: "chat_1", message: { id: "msg_1" } }), {
+        status: 200,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendMessageLinq("linq:chat:chat_1", "whatsapp", {
+      account: {
+        accountId: "whatsapp",
+        enabled: true,
+        token: "whatsapp-token",
+        tokenSource: "config",
+        webhookSecret: "",
+        webhookSecretSource: "none",
+        config: { apiBase: "https://relay.test/api/partner/v3" },
+      },
+    });
+    await sendMessageLinq("linq:chat:chat_1", "imessage", {
+      token: "imessage-token",
+      accountId: "default",
+    });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://relay.test/api/partner/v3/chats/chat_1/messages",
+      "https://api.linqapp.com/api/partner/v3/chats/chat_1/messages",
+    ]);
+  });
+
   it("rejects phone targets without a configured fromPhone", async () => {
     await expect(sendMessageLinq("linq:+15556667777", "hello", { token: "token" })).rejects.toThrow(
       /fromPhone/u,

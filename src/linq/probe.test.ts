@@ -29,4 +29,18 @@ describe("probeLinq", () => {
       }),
     );
   });
+
+  it("uses the selected account API base", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ phone_numbers: [] }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await probeLinq("token", 1000, "https://relay.test/api/partner/v3/");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://relay.test/api/partner/v3/phone_numbers",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
 });

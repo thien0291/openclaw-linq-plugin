@@ -13,6 +13,10 @@ export const LinqAccountConfigSchema: z.ZodType<Record<string, unknown>> = z.laz
     .object({
       name: z.string().min(1).optional(),
       enabled: z.boolean().optional(),
+      // Which provider this pooled line carries. Drives the human-facing
+      // channel label ("WhatsApp" vs "Linq iMessage") without changing the
+      // trusted `linq` route identity; iMessage when unset.
+      service: z.enum(["iMessage", "WhatsApp", "SMS", "RCS"]).optional(),
       apiToken: z.union([z.string().min(1), secretRefSchema]).optional(),
       tokenFile: z.string().min(1).optional(),
       fromPhone: e164PhoneSchema.optional(),
@@ -76,6 +80,7 @@ export const LinqConfigJsonSchema = {
   properties: {
     enabled: { type: "boolean" },
     name: { type: "string", minLength: 1 },
+    service: { enum: ["iMessage", "WhatsApp", "SMS", "RCS"] },
     apiToken: { anyOf: [{ type: "string", minLength: 1 }, { $ref: "#/$defs/secretRef" }] },
     tokenFile: { type: "string", minLength: 1 },
     fromPhone: { type: "string", pattern: "^\\+[1-9]\\d{6,14}$" },

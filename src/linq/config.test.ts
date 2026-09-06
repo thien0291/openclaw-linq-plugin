@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { LinqConfigJsonSchema, LinqConfigSchema } from "./config.js";
-import { resolveLinqAccount, resolveLinqAccountForStatus } from "./accounts.js";
+import {
+  listLinqAccountIds,
+  resolveLinqAccount,
+  resolveLinqAccountForStatus,
+} from "./accounts.js";
 
 describe("LinqConfigSchema", () => {
   it("accepts supported SecretRef-backed credentials and applies open dmPolicy by default", () => {
@@ -100,6 +104,26 @@ describe("resolveLinqAccount", () => {
       webhookSecretSource: "none",
       fromPhone: "+15556667777",
     });
+  });
+});
+
+describe("listLinqAccountIds", () => {
+  it("keeps the legacy top-level account when WhatsApp is added beside it", () => {
+    const cfg = {
+      channels: {
+        linq: {
+          apiToken: "imessage-token",
+          accounts: {
+            whatsapp: {
+              apiToken: "whatsapp-token",
+              service: "WhatsApp",
+            },
+          },
+        },
+      },
+    };
+
+    expect(listLinqAccountIds(cfg as never)).toEqual(["default", "whatsapp"]);
   });
 });
 

@@ -141,11 +141,12 @@ async function selectLinqPhone(params: {
   prompter: WizardPrompter;
   token: string;
   existingPhone?: string;
+  apiBase?: string;
 }): Promise<string> {
-  const { prompter, token, existingPhone } = params;
+  const { prompter, token, existingPhone, apiBase } = params;
   let phoneNumbers: string[] = [];
   try {
-    const probe = await probeLinq(token, 5000);
+    const probe = await probeLinq(token, 5000, apiBase);
     phoneNumbers = probe.ok ? (probe.phoneNumbers ?? []) : [];
     if (!probe.ok && probe.error) {
       await prompter.note(`Could not list Linq phone numbers: ${probe.error}`, "Linq phone lookup");
@@ -182,6 +183,7 @@ async function maybeCreateLinqWebhookSubscription(params: {
   fromPhone: string;
   previousFromPhone?: string;
   hasWebhookSecret: boolean;
+  apiBase?: string;
 }): Promise<string | null> {
   const {
     prompter,
@@ -191,12 +193,13 @@ async function maybeCreateLinqWebhookSubscription(params: {
     fromPhone,
     previousFromPhone,
     hasWebhookSecret,
+    apiBase,
   } = params;
   if (!token?.trim()) {
     return null;
   }
   try {
-    const subscriptions = await listLinqWebhookSubscriptions(token);
+    const subscriptions = await listLinqWebhookSubscriptions(token, apiBase);
     const parsedWebhookUrl = parseWebhookUrl(webhookUrl);
     const isPublicHttps = parsedWebhookUrl?.protocol === "https:";
     const existing = findLinqWebhookSubscription(subscriptions, webhookUrl, fromPhone);
@@ -226,7 +229,7 @@ async function maybeCreateLinqWebhookSubscription(params: {
         );
         return null;
       }
-      await deleteLinqWebhookSubscription({ token, subscriptionId: existing.id });
+      await deleteLinqWebhookSubscription({ token, subscriptionId: existing.id, apiBase });
     }
 
     if (!isPublicHttps) {
@@ -252,7 +255,7 @@ async function maybeCreateLinqWebhookSubscription(params: {
         return null;
       }
       for (const subscription of replaceable) {
-        await deleteLinqWebhookSubscription({ token, subscriptionId: subscription.id });
+        await deleteLinqWebhookSubscription({ token, subscriptionId: subscription.id, apiBase });
       }
     }
 
@@ -267,6 +270,7 @@ async function maybeCreateLinqWebhookSubscription(params: {
       token,
       targetUrl: webhookUrl,
       phoneNumber: fromPhone,
+      apiBase,
     });
     await prompter.note(
       `Created Linq webhook subscription ${subscription.id}.`,
@@ -398,6 +402,7 @@ export const linqOnboardingAdapter: ChannelOnboardingAdapter = {
       prompter,
       token: accountAfterToken.token,
       existingPhone: accountAfterToken.fromPhone,
+      apiBase: accountAfterToken.config.apiBase,
     });
 
     next = setLinqAccountPatch(next, linqAccountId, { fromPhone });
@@ -442,6 +447,7 @@ export const linqOnboardingAdapter: ChannelOnboardingAdapter = {
       fromPhone,
       previousFromPhone,
       hasWebhookSecret: Boolean(accountAfterWebhook.webhookSecret),
+      apiBase: accountAfterWebhook.config.apiBase,
     });
     if (webhookSecret) {
       next = setLinqAccountPatch(next, linqAccountId, { webhookSecret });

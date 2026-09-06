@@ -30,7 +30,6 @@ import {
   collectLinqRuntimeConfigAssignments,
   linqSecretTargetRegistryEntries,
 } from "./linq/secret-contract.js";
-import { apiBaseFromConfig, setLinqApiBase } from "./linq/apiBase.js";
 
 // beta.7 gateways may import the module before the chat-channel metadata
 // registry knows plugin-manifest channels - fall back to the same values
@@ -66,7 +65,11 @@ export const linqPlugin: ChannelPlugin<ResolvedLinqAccount, LinqProbe> = {
     },
   },
   capabilities: {
-    chatTypes: ["direct"],
+    // Groups are first-class here (see monitorLinqProvider's group path): the
+    // plugin holds a per-group context buffer, enforces the roster + mention
+    // gates, and replies into the originating chat. Declaring "group" is what
+    // lets the gateway route group events to this plugin at all.
+    chatTypes: ["direct", "group"],
     reactions: false,
     media: true,
   },
@@ -89,7 +92,7 @@ export const linqPlugin: ChannelPlugin<ResolvedLinqAccount, LinqProbe> = {
         cfg,
         sectionKey: "linq",
         accountId,
-        clearBaseFields: ["apiToken", "tokenFile", "fromPhone", "name"],
+        clearBaseFields: ["apiToken", "tokenFile", "fromPhone", "name", "service"],
       }),
     isConfigured: (account) => Boolean(account.token?.trim()),
     describeAccount: (account) => ({
@@ -290,7 +293,7 @@ export const linqPlugin: ChannelPlugin<ResolvedLinqAccount, LinqProbe> = {
       lastProbeAt: snapshot.lastProbeAt ?? null,
     }),
     probeAccount: async ({ account, timeoutMs }) =>
-      probeLinq(account.token, timeoutMs),
+      probeLinq(account.token, timeoutMs, account.config.apiBase),
     buildAccountSnapshot: ({ account, runtime, probe }) => ({
       accountId: account.accountId,
       name: account.name,
@@ -315,14 +318,10 @@ export const linqPlugin: ChannelPlugin<ResolvedLinqAccount, LinqProbe> = {
   gateway: {
     startAccount: async (ctx) => {
       const account = ctx.account;
-      // Before anything that calls the API — probeLinq below is the first.
-      // Re-applied on every start, so a config reload retargets the channel
-      // without recreating the container.
-      setLinqApiBase(apiBaseFromConfig(ctx.cfg));
       const token = account.token.trim();
       let phoneLabel = "";
       try {
-        const probe = await probeLinq(token, 2500);
+        const probe = await probeLinq(token, 2500, account.config.apiBase);
         if (probe.ok && probe.phoneNumbers?.length) {
           phoneLabel = ` (${probe.phoneNumbers.join(", ")})`;
         }
