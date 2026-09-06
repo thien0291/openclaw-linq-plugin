@@ -40,6 +40,20 @@ describe("Linq webhook subscriptions", () => {
     );
   });
 
+  it("uses the selected account API base for subscription calls", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ subscriptions: [] }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listLinqWebhookSubscriptions("token", "https://relay.test/api/partner/v3/");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://relay.test/api/partner/v3/webhook-subscriptions",
+      expect.any(Object),
+    );
+  });
+
   it("matches subscriptions by URL and selected phone number", () => {
     const subscription = {
       id: "sub_1",

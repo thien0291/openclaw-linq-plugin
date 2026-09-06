@@ -14609,8 +14609,14 @@ function listLinqAccountIds(cfg) {
   const linqSection = cfg.channels?.linq;
   const ids = listConfiguredAccountIds(cfg);
   const defaultAccount = linqSection?.defaultAccount?.trim();
+  const hasBaseAccount = Boolean(
+    linqSection?.apiToken || linqSection?.tokenFile?.trim() || process.env.LINQ_API_TOKEN?.trim()
+  );
   if (ids.length === 0) {
     return [DEFAULT_ACCOUNT_ID];
+  }
+  if (hasBaseAccount && !ids.includes(DEFAULT_ACCOUNT_ID)) {
+    ids.push(DEFAULT_ACCOUNT_ID);
   }
   if (defaultAccount && !ids.includes(defaultAccount)) {
     ids.push(defaultAccount);
@@ -14619,9 +14625,9 @@ function listLinqAccountIds(cfg) {
 }
 function resolveDefaultLinqAccountId(cfg) {
   const linqSection = cfg.channels?.linq;
-  const configured2 = linqSection?.defaultAccount?.trim();
-  if (configured2) {
-    return normalizeAccountId(configured2);
+  const configured = linqSection?.defaultAccount?.trim();
+  if (configured) {
+    return normalizeAccountId(configured);
   }
   const ids = listLinqAccountIds(cfg);
   if (ids.includes(DEFAULT_ACCOUNT_ID)) {
@@ -14784,26 +14790,17 @@ function resolveLinqAccountForStatus(params) {
 // src/linq/apiBase.ts
 var DEFAULT_LINQ_API_BASE = "https://api.linqapp.com/api/partner/v3";
 var trim = (value) => (value ?? "").trim().replace(/\/+$/, "");
-var configured = "";
-function setLinqApiBase(value) {
-  configured = trim(value);
-}
-function apiBaseFromConfig(cfg) {
-  const channels = cfg?.channels;
-  const linq = channels?.linq;
-  return typeof linq?.apiBase === "string" ? linq.apiBase : void 0;
-}
-function linqApiBase() {
-  return configured || trim(process.env.LINQ_API_BASE) || DEFAULT_LINQ_API_BASE;
+function linqApiBase(accountBase) {
+  return trim(accountBase) || trim(process.env.LINQ_API_BASE) || DEFAULT_LINQ_API_BASE;
 }
 
 // src/linq/probe.ts
-async function probeLinq(token, timeoutMs) {
+async function probeLinq(token, timeoutMs, apiBase) {
   const resolvedToken = token?.trim() ?? "";
   if (!resolvedToken) {
     return { ok: false, error: "Linq API token not configured" };
   }
-  const url2 = `${linqApiBase()}/phone_numbers`;
+  const url2 = `${linqApiBase(apiBase)}/phone_numbers`;
   const controller = new AbortController();
   const timer = timeoutMs && timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
@@ -14888,8 +14885,8 @@ import {
 var PLAIN_STYLES = {};
 var DEFAULT_TABLE_MODE = "bullets";
 function tableMode(cfg) {
-  const configured2 = cfg?.markdown?.tableMode;
-  return typeof configured2 === "string" && configured2 ? configured2 : DEFAULT_TABLE_MODE;
+  const configured = cfg?.markdown?.tableMode;
+  return typeof configured === "string" && configured ? configured : DEFAULT_TABLE_MODE;
 }
 function toPlainText(markdown, cfg) {
   const source = markdown ?? "";
@@ -14931,14 +14928,14 @@ async function fetchWithRetry(url2, init, retries = MAX_RETRIES) {
     return response;
   }
 }
-function buildSendUrl(target, fromPhone) {
+function buildSendUrl(target, fromPhone, apiBase) {
   if (target.kind === "phone") {
     if (!fromPhone?.trim()) {
       throw new Error("Linq phone targets require fromPhone on the selected account");
     }
-    return `${linqApiBase()}/chats`;
+    return `${linqApiBase(apiBase)}/chats`;
   }
-  return `${linqApiBase()}/chats/${encodeURIComponent(target.chatId)}/messages`;
+  return `${linqApiBase(apiBase)}/chats/${encodeURIComponent(target.chatId)}/messages`;
 }
 function buildSendBody(target, message, fromPhone) {
   if (target.kind === "phone") {
@@ -14974,7 +14971,11 @@ async function sendMessageLinq(to, text, opts = {}) {
   if (!resolvedToken) {
     throw new Error("Linq API token not configured");
   }
-  const url2 = buildSendUrl(target, resolvedAccount?.fromPhone);
+  const url2 = buildSendUrl(
+    target,
+    resolvedAccount?.fromPhone,
+    opts.apiBase ?? resolvedAccount?.config.apiBase
+  );
   const headers = {
     Authorization: `Bearer ${resolvedToken}`,
     "Content-Type": "application/json",
@@ -15012,14 +15013,14 @@ async function fireAndForget(url2, init) {
     return false;
   }
 }
-async function startTypingLinq(chatId, token) {
-  return fireAndForget(`${linqApiBase()}/chats/${encodeURIComponent(chatId)}/typing`, {
+async function startTypingLinq(chatId, token, apiBase) {
+  return fireAndForget(`${linqApiBase(apiBase)}/chats/${encodeURIComponent(chatId)}/typing`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "User-Agent": UA }
   });
 }
-async function markAsReadLinq(chatId, token) {
-  return fireAndForget(`${linqApiBase()}/chats/${encodeURIComponent(chatId)}/read`, {
+async function markAsReadLinq(chatId, token, apiBase) {
+  return fireAndForget(`${linqApiBase(apiBase)}/chats/${encodeURIComponent(chatId)}/read`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "User-Agent": UA }
   });
@@ -15404,8 +15405,8 @@ async function monitorLinqProvider(opts = {}) {
     }
     const context = buffer.slice(0, myIndex);
     buffer.splice(0, myIndex + 1);
-    markAsReadLinq(chatId, token);
-    startTypingLinq(chatId, token);
+    markAsReadLinq(chatId, token, linqCfg.apiBase);
+    startTypingLinq(chatId, token, linqCfg.apiBase);
     const route = rt.channel.routing.resolveAgentRoute({
       cfg,
       channel: "linq",
@@ -15487,7 +15488,8 @@ async function monitorLinqProvider(opts = {}) {
           if (replyText) {
             const receipt = await sendMessageLinq(`linq:chat:${chatId}`, replyText, {
               token,
-              accountId: accountInfo.accountId
+              accountId: accountInfo.accountId,
+              apiBase: linqCfg.apiBase
             });
             if (receipt?.messageId) {
               own.add(receipt.messageId);
@@ -15522,8 +15524,8 @@ async function monitorLinqProvider(opts = {}) {
     if (!text.trim() && media.length === 0) {
       return;
     }
-    markAsReadLinq(chatId, token);
-    startTypingLinq(chatId, token);
+    markAsReadLinq(chatId, token, linqCfg.apiBase);
+    startTypingLinq(chatId, token, linqCfg.apiBase);
     let storeAllowFrom = [];
     try {
       storeAllowFrom = await rt.channel.pairing.readAllowFromStore?.({
@@ -15557,7 +15559,7 @@ async function monitorLinqProvider(opts = {}) {
                 idLine: `Your phone number: ${sender}`,
                 code
               }),
-              { token, accountId: accountInfo.accountId }
+              { token, accountId: accountInfo.accountId, apiBase: linqCfg.apiBase }
             );
           } catch (err) {
             logVerbose(`linq pairing reply failed for ${sender}: ${String(err)}`);
@@ -15662,7 +15664,8 @@ async function monitorLinqProvider(opts = {}) {
           if (replyText) {
             await sendMessageLinq(`linq:chat:${chatId}`, replyText, {
               token,
-              accountId: accountInfo.accountId
+              accountId: accountInfo.accountId,
+              apiBase: linqCfg.apiBase
             });
           }
         }
@@ -15772,12 +15775,12 @@ var LinqApiError = class extends Error {
     this.code = params.code;
   }
 };
-async function fetchLinqJson(token, path, init = {}) {
-  const response = await fetchLinq(token, path, init);
+async function fetchLinqJson(token, path, init = {}, apiBase) {
+  const response = await fetchLinq(token, path, init, apiBase);
   return await response.json();
 }
-async function fetchLinq(token, path, init = {}) {
-  const response = await fetch(`${linqApiBase()}${path}`, {
+async function fetchLinq(token, path, init = {}, apiBase) {
+  const response = await fetch(`${linqApiBase(apiBase)}${path}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -15825,10 +15828,12 @@ function matchesWebhookSubscription(params) {
   const phoneNumbers = subscription.phone_numbers ?? [];
   return phoneNumbers.length === 0 || phoneNumbers.includes(expectedPhone);
 }
-async function listLinqWebhookSubscriptions(token) {
+async function listLinqWebhookSubscriptions(token, apiBase) {
   const data = await fetchLinqJson(
     token,
-    "/webhook-subscriptions"
+    "/webhook-subscriptions",
+    {},
+    apiBase
   );
   return data.subscriptions ?? [];
 }
@@ -15872,28 +15877,39 @@ async function createLinqWebhookSubscription(params) {
     ...params.phoneNumber?.trim() ? { phone_numbers: [params.phoneNumber.trim()] } : {}
   };
   try {
-    return await fetchLinqJson(params.token, "/webhook-subscriptions", {
-      method: "POST",
-      body: JSON.stringify(body)
-    });
+    return await fetchLinqJson(
+      params.token,
+      "/webhook-subscriptions",
+      {
+        method: "POST",
+        body: JSON.stringify(body)
+      },
+      params.apiBase
+    );
   } catch (err) {
     if (!params.phoneNumber?.trim() || !isPhoneNumberPermissionError(err)) {
       throw err;
     }
-    return fetchLinqJson(params.token, "/webhook-subscriptions", {
-      method: "POST",
-      body: JSON.stringify({
-        subscribed_events: body.subscribed_events,
-        target_url: body.target_url
-      })
-    });
+    return fetchLinqJson(
+      params.token,
+      "/webhook-subscriptions",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          subscribed_events: body.subscribed_events,
+          target_url: body.target_url
+        })
+      },
+      params.apiBase
+    );
   }
 }
 async function deleteLinqWebhookSubscription(params) {
   await fetchLinq(
     params.token,
     `/webhook-subscriptions/${encodeURIComponent(params.subscriptionId)}`,
-    { method: "DELETE" }
+    { method: "DELETE" },
+    params.apiBase
   );
 }
 
@@ -15993,10 +16009,10 @@ async function noteLinqPhoneHelp(prompter) {
   );
 }
 async function selectLinqPhone(params) {
-  const { prompter, token, existingPhone } = params;
+  const { prompter, token, existingPhone, apiBase } = params;
   let phoneNumbers = [];
   try {
-    const probe = await probeLinq(token, 5e3);
+    const probe = await probeLinq(token, 5e3, apiBase);
     phoneNumbers = probe.ok ? probe.phoneNumbers ?? [] : [];
     if (!probe.ok && probe.error) {
       await prompter.note(`Could not list Linq phone numbers: ${probe.error}`, "Linq phone lookup");
@@ -16030,13 +16046,14 @@ async function maybeCreateLinqWebhookSubscription(params) {
     previousWebhookUrl,
     fromPhone,
     previousFromPhone,
-    hasWebhookSecret
+    hasWebhookSecret,
+    apiBase
   } = params;
   if (!token?.trim()) {
     return null;
   }
   try {
-    const subscriptions = await listLinqWebhookSubscriptions(token);
+    const subscriptions = await listLinqWebhookSubscriptions(token, apiBase);
     const parsedWebhookUrl = parseWebhookUrl(webhookUrl);
     const isPublicHttps = parsedWebhookUrl?.protocol === "https:";
     const existing = findLinqWebhookSubscription(subscriptions, webhookUrl, fromPhone);
@@ -16066,7 +16083,7 @@ async function maybeCreateLinqWebhookSubscription(params) {
         );
         return null;
       }
-      await deleteLinqWebhookSubscription({ token, subscriptionId: existing.id });
+      await deleteLinqWebhookSubscription({ token, subscriptionId: existing.id, apiBase });
     }
     if (!isPublicHttps) {
       await prompter.note(
@@ -16090,7 +16107,7 @@ async function maybeCreateLinqWebhookSubscription(params) {
         return null;
       }
       for (const subscription2 of replaceable) {
-        await deleteLinqWebhookSubscription({ token, subscriptionId: subscription2.id });
+        await deleteLinqWebhookSubscription({ token, subscriptionId: subscription2.id, apiBase });
       }
     }
     const create = await prompter.confirm({
@@ -16103,7 +16120,8 @@ async function maybeCreateLinqWebhookSubscription(params) {
     const subscription = await createLinqWebhookSubscription({
       token,
       targetUrl: webhookUrl,
-      phoneNumber: fromPhone
+      phoneNumber: fromPhone,
+      apiBase
     });
     await prompter.note(
       `Created Linq webhook subscription ${subscription.id}.`,
@@ -16126,15 +16144,15 @@ var dmPolicy = {
 var linqOnboardingAdapter = {
   channel,
   getStatus: async ({ cfg }) => {
-    const configured2 = listLinqAccountIds(cfg).some(
+    const configured = listLinqAccountIds(cfg).some(
       (accountId) => Boolean(resolveLinqAccountForStatus({ cfg, accountId }).token)
     );
     return {
       channel,
-      configured: configured2,
-      statusLines: [`Linq: ${configured2 ? "configured" : "needs token"}`],
-      selectionHint: configured2 ? "recommended \xB7 configured" : "recommended \xB7 iMessage blue bubbles",
-      quickstartScore: configured2 ? 1 : 10
+      configured,
+      statusLines: [`Linq: ${configured ? "configured" : "needs token"}`],
+      selectionHint: configured ? "recommended \xB7 configured" : "recommended \xB7 iMessage blue bubbles",
+      quickstartScore: configured ? 1 : 10
     };
   },
   configure: async ({
@@ -16225,7 +16243,8 @@ var linqOnboardingAdapter = {
     const fromPhone = await selectLinqPhone({
       prompter,
       token: accountAfterToken.token,
-      existingPhone: accountAfterToken.fromPhone
+      existingPhone: accountAfterToken.fromPhone,
+      apiBase: accountAfterToken.config.apiBase
     });
     next = setLinqAccountPatch(next, linqAccountId, { fromPhone });
     const linqSection = next.channels?.linq;
@@ -16259,7 +16278,8 @@ var linqOnboardingAdapter = {
       previousWebhookUrl,
       fromPhone,
       previousFromPhone,
-      hasWebhookSecret: Boolean(accountAfterWebhook.webhookSecret)
+      hasWebhookSecret: Boolean(accountAfterWebhook.webhookSecret),
+      apiBase: accountAfterWebhook.config.apiBase
     });
     if (webhookSecret) {
       next = setLinqAccountPatch(next, linqAccountId, { webhookSecret });
@@ -16391,7 +16411,7 @@ var linqPlugin = {
       cfg,
       sectionKey: "linq",
       accountId,
-      clearBaseFields: ["apiToken", "tokenFile", "fromPhone", "name"]
+      clearBaseFields: ["apiToken", "tokenFile", "fromPhone", "name", "service"]
     }),
     isConfigured: (account) => Boolean(account.token?.trim()),
     describeAccount: (account) => ({
@@ -16563,7 +16583,7 @@ var linqPlugin = {
       probe: snapshot.probe,
       lastProbeAt: snapshot.lastProbeAt ?? null
     }),
-    probeAccount: async ({ account, timeoutMs }) => probeLinq(account.token, timeoutMs),
+    probeAccount: async ({ account, timeoutMs }) => probeLinq(account.token, timeoutMs, account.config.apiBase),
     buildAccountSnapshot: ({ account, runtime: runtime2, probe }) => ({
       accountId: account.accountId,
       name: account.name,
@@ -16588,11 +16608,10 @@ var linqPlugin = {
   gateway: {
     startAccount: async (ctx) => {
       const account = ctx.account;
-      setLinqApiBase(apiBaseFromConfig(ctx.cfg));
       const token = account.token.trim();
       let phoneLabel = "";
       try {
-        const probe = await probeLinq(token, 2500);
+        const probe = await probeLinq(token, 2500, account.config.apiBase);
         if (probe.ok && probe.phoneNumbers?.length) {
           phoneLabel = ` (${probe.phoneNumbers.join(", ")})`;
         }

@@ -428,8 +428,8 @@ export async function monitorLinqProvider(opts: MonitorLinqOpts = {}): Promise<v
     const context = buffer.slice(0, myIndex);
     buffer.splice(0, myIndex + 1);
 
-    markAsReadLinq(chatId, token);
-    startTypingLinq(chatId, token);
+    markAsReadLinq(chatId, token, linqCfg.apiBase);
+    startTypingLinq(chatId, token, linqCfg.apiBase);
 
     // 4. A turn, in the chat's own session — never in anyone's private thread.
     const route = rt.channel.routing.resolveAgentRoute({
@@ -524,6 +524,7 @@ export async function monitorLinqProvider(opts: MonitorLinqOpts = {}): Promise<v
             const receipt = await sendMessageLinq(`linq:chat:${chatId}`, replyText, {
               token,
               accountId: accountInfo.accountId,
+              apiBase: linqCfg.apiBase,
             });
             if (receipt?.messageId) {
               own.add(receipt.messageId);
@@ -564,8 +565,8 @@ export async function monitorLinqProvider(opts: MonitorLinqOpts = {}): Promise<v
       return;
     }
 
-    markAsReadLinq(chatId, token);
-    startTypingLinq(chatId, token);
+    markAsReadLinq(chatId, token, linqCfg.apiBase);
+    startTypingLinq(chatId, token, linqCfg.apiBase);
 
     // beta.7 SDKs may not implement readAllowFromStore (returns undefined,
     // so a chained .catch throws). Tolerate missing/void/throwing here.
@@ -611,7 +612,7 @@ export async function monitorLinqProvider(opts: MonitorLinqOpts = {}): Promise<v
                 idLine: `Your phone number: ${sender}`,
                 code,
               }),
-              { token, accountId: accountInfo.accountId },
+              { token, accountId: accountInfo.accountId, apiBase: linqCfg.apiBase },
             );
           } catch (err) {
             logVerbose(`linq pairing reply failed for ${sender}: ${String(err)}`);
@@ -724,6 +725,7 @@ export async function monitorLinqProvider(opts: MonitorLinqOpts = {}): Promise<v
             await sendMessageLinq(`linq:chat:${chatId}`, replyText, {
               token,
               accountId: accountInfo.accountId,
+              apiBase: linqCfg.apiBase,
             });
           }
         },

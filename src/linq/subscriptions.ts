@@ -28,8 +28,9 @@ async function fetchLinqJson<T>(
   token: string,
   path: string,
   init: RequestInit = {},
+  apiBase?: string,
 ): Promise<T> {
-  const response = await fetchLinq(token, path, init);
+  const response = await fetchLinq(token, path, init, apiBase);
   return (await response.json()) as T;
 }
 
@@ -37,8 +38,9 @@ async function fetchLinq(
   token: string,
   path: string,
   init: RequestInit = {},
+  apiBase?: string,
 ): Promise<Response> {
-  const response = await fetch(`${linqApiBase()}${path}`, {
+  const response = await fetch(`${linqApiBase(apiBase)}${path}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -97,10 +99,13 @@ function matchesWebhookSubscription(params: {
 
 export async function listLinqWebhookSubscriptions(
   token: string,
+  apiBase?: string,
 ): Promise<LinqWebhookSubscription[]> {
   const data = await fetchLinqJson<{ subscriptions?: LinqWebhookSubscription[] }>(
     token,
     "/webhook-subscriptions",
+    {},
+    apiBase,
   );
   return data.subscriptions ?? [];
 }
@@ -158,6 +163,7 @@ export async function createLinqWebhookSubscription(params: {
   targetUrl: string;
   phoneNumber?: string;
   subscribedEvents?: readonly string[];
+  apiBase?: string;
 }): Promise<LinqWebhookSubscription> {
   const body = {
     subscribed_events: [...(params.subscribedEvents ?? LINQ_INBOUND_WEBHOOK_EVENTS)],
@@ -165,31 +171,43 @@ export async function createLinqWebhookSubscription(params: {
     ...(params.phoneNumber?.trim() ? { phone_numbers: [params.phoneNumber.trim()] } : {}),
   };
   try {
-    return await fetchLinqJson<LinqWebhookSubscription>(params.token, "/webhook-subscriptions", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return await fetchLinqJson<LinqWebhookSubscription>(
+      params.token,
+      "/webhook-subscriptions",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+      params.apiBase,
+    );
   } catch (err) {
     if (!params.phoneNumber?.trim() || !isPhoneNumberPermissionError(err)) {
       throw err;
     }
-    return fetchLinqJson<LinqWebhookSubscription>(params.token, "/webhook-subscriptions", {
-      method: "POST",
-      body: JSON.stringify({
-        subscribed_events: body.subscribed_events,
-        target_url: body.target_url,
-      }),
-    });
+    return fetchLinqJson<LinqWebhookSubscription>(
+      params.token,
+      "/webhook-subscriptions",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          subscribed_events: body.subscribed_events,
+          target_url: body.target_url,
+        }),
+      },
+      params.apiBase,
+    );
   }
 }
 
 export async function deleteLinqWebhookSubscription(params: {
   token: string;
   subscriptionId: string;
+  apiBase?: string;
 }): Promise<void> {
   await fetchLinq(
     params.token,
     `/webhook-subscriptions/${encodeURIComponent(params.subscriptionId)}`,
     { method: "DELETE" },
+    params.apiBase,
   );
 }
