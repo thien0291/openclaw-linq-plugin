@@ -99,9 +99,17 @@ export function normalizeLinqMessageReceivedData(raw: unknown): LinqMessageRecei
       data.direction === "outbound" ||
       senderHandle.is_me === true,
     service:
-      data.service === "SMS" || data.service === "RCS" || data.service === "iMessage"
+      data.service === "SMS" ||
+      data.service === "RCS" ||
+      data.service === "iMessage" ||
+      data.service === "WhatsApp"
         ? data.service
         : "iMessage",
+    // The relay's explicit machine key, preserved verbatim when present — never
+    // rewritten into an iMessage value.
+    ...(typeof data.channel === "string" && data.channel.trim()
+      ? { channel: data.channel.trim() }
+      : {}),
     message: {
       id: data.id,
       parts: data.parts as LinqMessageReceivedData["message"]["parts"],
@@ -228,6 +236,28 @@ export function buildGroupBodyForAgent(context: GroupLine[], current: GroupLine)
   }
   parts.push("[Current message]", `${current.name}: ${current.text}`);
   return parts.join("\n");
+}
+
+/**
+ * The human-facing channel label for the agent envelope and logs. The trusted
+ * route identity stays `linq` (one plugin, one channel), but a WhatsApp line
+ * must never be presented to the agent — or written to a log — as iMessage.
+ * Derived from the message's own service, falling back to the account's
+ * configured service, and defaulting to iMessage so nothing changes for the
+ * existing single-provider deployments.
+ */
+export function channelLabelOf(service?: string, accountService?: string): string {
+  const resolved = (service || accountService || "").toLowerCase();
+  if (resolved === "whatsapp") {
+    return "WhatsApp";
+  }
+  if (resolved === "sms") {
+    return "SMS";
+  }
+  if (resolved === "rcs") {
+    return "RCS";
+  }
+  return "Linq iMessage";
 }
 
 export function clockOf(iso: string | undefined): string {
@@ -420,8 +450,9 @@ export async function monitorLinqProvider(opts: MonitorLinqOpts = {}): Promise<v
     const participantsLabel = (data.participants ?? []).map(nameOf).join(", ");
     const conversationLabel = data.chat_display_name || participantsLabel || chatId;
 
+    const channelLabel = channelLabelOf(data.service, linqCfg.service);
     const body = rt.channel.reply.formatAgentEnvelope({
-      channel: "Linq iMessage",
+      channel: channelLabel,
       from: conversationLabel,
       timestamp: createdAt,
       body: bodyForAgent,
@@ -471,7 +502,9 @@ export async function monitorLinqProvider(opts: MonitorLinqOpts = {}): Promise<v
       },
     });
 
-    logVerbose(`linq group inbound: chatId=${chatId} from=${sender} context=${context.length}`);
+    logVerbose(
+      `linq group inbound: channel=${channelLabel} chatId=${chatId} from=${sender} context=${context.length}`,
+    );
 
     const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({
       cfg,
@@ -613,8 +646,9 @@ export async function monitorLinqProvider(opts: MonitorLinqOpts = {}): Promise<v
     });
 
     const replySuffix = replyContext?.id ? `\n\n[Replying to message ${replyContext.id}]` : "";
+    const channelLabel = channelLabelOf(data.service, linqCfg.service);
     const body = rt.channel.reply.formatAgentEnvelope({
-      channel: "Linq iMessage",
+      channel: channelLabel,
       from: fromLabel,
       timestamp: createdAt,
       body: `${bodyText}${replySuffix}`,
@@ -622,7 +656,7 @@ export async function monitorLinqProvider(opts: MonitorLinqOpts = {}): Promise<v
       sender: { name: sender, id: sender },
       previousTimestamp,
       envelope: envelopeOptions,
-    });
+    } as unknown as Parameters<typeof rt.channel.reply.formatAgentEnvelope>[0]);
 
     const linqTo = chatId;
     const ctxPayload = rt.channel.reply.finalizeInboundContext({
@@ -669,7 +703,7 @@ export async function monitorLinqProvider(opts: MonitorLinqOpts = {}): Promise<v
     });
 
     logVerbose(
-      `linq inbound: chatId=${chatId} from=${sender} len=${body.length}`,
+      `linq inbound: channel=${channelLabel} chatId=${chatId} from=${sender} len=${body.length}`,
     );
 
     const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({

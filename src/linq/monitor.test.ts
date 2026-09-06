@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeLinqMessageReceivedData } from "./monitor.js";
+import { channelLabelOf, normalizeLinqMessageReceivedData } from "./monitor.js";
 
 describe("normalizeLinqMessageReceivedData", () => {
   it("keeps the legacy 2025 message.received shape", () => {
@@ -174,5 +174,48 @@ describe("normalizeLinqMessageReceivedData: group fields", () => {
       participants: ["+12025550100", "+12025550102"],
       chat_display_name: "Avango deal",
     });
+  });
+});
+
+describe("WhatsApp relay events", () => {
+  it("keeps a WhatsApp service instead of rewriting it to iMessage", () => {
+    const normalized = normalizeLinqMessageReceivedData({
+      chat_id: "grp-7",
+      from: "+84912357477",
+      recipient_phone: "+15550009003",
+      received_at: "2026-09-06T03:12:41Z",
+      is_from_me: false,
+      service: "WhatsApp",
+      channel: "whatsapp",
+      is_group: true,
+      participants: ["+84912357477", "+14155550142"],
+      message: { id: "wa-1", parts: [{ type: "text", value: "@PA hi" }] },
+    });
+    expect(normalized?.service).toBe("WhatsApp");
+    expect(normalized?.channel).toBe("whatsapp");
+  });
+
+  it("preserves the explicit channel key on the current shape", () => {
+    const normalized = normalizeLinqMessageReceivedData({
+      chat: { id: "chat_wa", owner_handle: { handle: "+15550009003" } },
+      id: "wa-2",
+      direction: "inbound",
+      sender_handle: { handle: "+12025550100", is_me: false },
+      parts: [{ type: "text", value: "hello" }],
+      sent_at: "2026-09-06T19:31:13Z",
+      service: "WhatsApp",
+      channel: "whatsapp",
+    });
+    expect(normalized?.service).toBe("WhatsApp");
+    expect(normalized?.channel).toBe("whatsapp");
+  });
+
+  it("labels the agent envelope by the message service, defaulting to iMessage", () => {
+    expect(channelLabelOf("WhatsApp")).toBe("WhatsApp");
+    expect(channelLabelOf("iMessage")).toBe("Linq iMessage");
+    expect(channelLabelOf(undefined)).toBe("Linq iMessage");
+    // Falls back to the account's configured service when the event omits one.
+    expect(channelLabelOf(undefined, "WhatsApp")).toBe("WhatsApp");
+    expect(channelLabelOf("SMS")).toBe("SMS");
   });
 });

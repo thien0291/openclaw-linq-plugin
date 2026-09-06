@@ -14543,6 +14543,10 @@ var LinqAccountConfigSchema = external_exports.lazy(
   () => external_exports.object({
     name: external_exports.string().min(1).optional(),
     enabled: external_exports.boolean().optional(),
+    // Which provider this pooled line carries. Drives the human-facing
+    // channel label ("WhatsApp" vs "Linq iMessage") without changing the
+    // trusted `linq` route identity; iMessage when unset.
+    service: external_exports.enum(["iMessage", "WhatsApp", "SMS", "RCS"]).optional(),
     apiToken: external_exports.union([external_exports.string().min(1), secretRefSchema]).optional(),
     tokenFile: external_exports.string().min(1).optional(),
     fromPhone: e164PhoneSchema.optional(),
@@ -15175,7 +15179,10 @@ function normalizeLinqMessageReceivedData(raw) {
     recipient_phone: typeof chat.owner_handle?.handle === "string" ? chat.owner_handle.handle : "",
     received_at: typeof data.sent_at === "string" ? data.sent_at : typeof data.created_at === "string" ? data.created_at : "",
     is_from_me: data.direction === "outbound" || senderHandle.is_me === true,
-    service: data.service === "SMS" || data.service === "RCS" || data.service === "iMessage" ? data.service : "iMessage",
+    service: data.service === "SMS" || data.service === "RCS" || data.service === "iMessage" || data.service === "WhatsApp" ? data.service : "iMessage",
+    // The relay's explicit machine key, preserved verbatim when present — never
+    // rewritten into an iMessage value.
+    ...typeof data.channel === "string" && data.channel.trim() ? { channel: data.channel.trim() } : {},
     message: {
       id: data.id,
       parts: data.parts,
@@ -15250,6 +15257,19 @@ function buildGroupBodyForAgent(context, current) {
   }
   parts.push("[Current message]", `${current.name}: ${current.text}`);
   return parts.join("\n");
+}
+function channelLabelOf(service, accountService) {
+  const resolved = (service || accountService || "").toLowerCase();
+  if (resolved === "whatsapp") {
+    return "WhatsApp";
+  }
+  if (resolved === "sms") {
+    return "SMS";
+  }
+  if (resolved === "rcs") {
+    return "RCS";
+  }
+  return "Linq iMessage";
 }
 function clockOf(iso) {
   const date5 = iso ? new Date(iso) : /* @__PURE__ */ new Date();
@@ -15402,8 +15422,9 @@ async function monitorLinqProvider(opts = {}) {
     });
     const participantsLabel = (data.participants ?? []).map(nameOf).join(", ");
     const conversationLabel = data.chat_display_name || participantsLabel || chatId;
+    const channelLabel = channelLabelOf(data.service, linqCfg.service);
     const body = rt.channel.reply.formatAgentEnvelope({
-      channel: "Linq iMessage",
+      channel: channelLabel,
       from: conversationLabel,
       timestamp: createdAt,
       body: bodyForAgent,
@@ -15447,7 +15468,9 @@ async function monitorLinqProvider(opts = {}) {
         logVerbose(`linq: failed updating session meta: ${String(err)}`);
       }
     });
-    logVerbose(`linq group inbound: chatId=${chatId} from=${sender} context=${context.length}`);
+    logVerbose(
+      `linq group inbound: channel=${channelLabel} chatId=${chatId} from=${sender} context=${context.length}`
+    );
     const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({
       cfg,
       agentId: route.agentId,
@@ -15567,8 +15590,9 @@ async function monitorLinqProvider(opts = {}) {
     const replySuffix = replyContext?.id ? `
 
 [Replying to message ${replyContext.id}]` : "";
+    const channelLabel = channelLabelOf(data.service, linqCfg.service);
     const body = rt.channel.reply.formatAgentEnvelope({
-      channel: "Linq iMessage",
+      channel: channelLabel,
       from: fromLabel,
       timestamp: createdAt,
       body: `${bodyText}${replySuffix}`,
@@ -15620,7 +15644,7 @@ async function monitorLinqProvider(opts = {}) {
       }
     });
     logVerbose(
-      `linq inbound: chatId=${chatId} from=${sender} len=${body.length}`
+      `linq inbound: channel=${channelLabel} chatId=${chatId} from=${sender} len=${body.length}`
     );
     const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({
       cfg,
@@ -16342,7 +16366,11 @@ var linqPlugin = {
     }
   },
   capabilities: {
-    chatTypes: ["direct"],
+    // Groups are first-class here (see monitorLinqProvider's group path): the
+    // plugin holds a per-group context buffer, enforces the roster + mention
+    // gates, and replies into the originating chat. Declaring "group" is what
+    // lets the gateway route group events to this plugin at all.
+    chatTypes: ["direct", "group"],
     reactions: false,
     media: true
   },

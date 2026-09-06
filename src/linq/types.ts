@@ -15,7 +15,13 @@ export type LinqMessageReceivedData = {
   recipient_phone: string;
   received_at: string;
   is_from_me: boolean;
-  service: "iMessage" | "SMS" | "RCS";
+  service: "iMessage" | "SMS" | "RCS" | "WhatsApp";
+  /**
+   * The explicit machine channel key the relay sends beside `service`
+   * ("imessage" | "whatsapp"), so the plugin never has to infer the channel
+   * from the display label. Optional: Linq's own events carry only `service`.
+   */
+  channel?: string;
   message: LinqIncomingMessage;
   /** A group chat: `from` is one participant, `chat_id` is the whole chat. */
   is_group?: boolean;
@@ -102,6 +108,14 @@ export type LinqAccountConfig = {
   tokenFile?: string;
   /** Phone number this account sends from (E.164). */
   fromPhone?: string;
+  /**
+   * The provider this pooled line carries. The trusted route identity stays
+   * `linq` (one plugin, one channel), but this drives the human-facing label
+   * the agent and logs see — "WhatsApp" versus "Linq iMessage" — as a fallback
+   * for when an inbound event does not carry its own `service`. iMessage when
+   * unset, so existing accounts are unchanged.
+   */
+  service?: "iMessage" | "WhatsApp" | "SMS" | "RCS";
   /** DM security policy. */
   dmPolicy?: "pairing" | "allowlist" | "open" | "disabled";
   /** Allowed sender IDs (phone numbers or "*"). */

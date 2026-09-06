@@ -66,7 +66,11 @@ export const linqPlugin: ChannelPlugin<ResolvedLinqAccount, LinqProbe> = {
     },
   },
   capabilities: {
-    chatTypes: ["direct"],
+    // Groups are first-class here (see monitorLinqProvider's group path): the
+    // plugin holds a per-group context buffer, enforces the roster + mention
+    // gates, and replies into the originating chat. Declaring "group" is what
+    // lets the gateway route group events to this plugin at all.
+    chatTypes: ["direct", "group"],
     reactions: false,
     media: true,
   },
