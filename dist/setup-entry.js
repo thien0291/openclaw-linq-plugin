@@ -15243,7 +15243,7 @@ function decideGroupTurn(params) {
     return { authorized: false, mentioned: false, triggers: false, reason: "groups are disabled" };
   }
   const authorized = params.groupPolicy === "open" ? true : isAllowedLinqSender(params.roster, params.sender);
-  const named = params.mentionPatterns.some((re) => re.test(params.text));
+  const named = Boolean(params.mentionsMe) || params.mentionPatterns.some((re) => re.test(params.text));
   const replied = Boolean(params.replyToId && params.ownMessageIds.has(params.replyToId));
   const mentioned = !params.requireMention || named || replied;
   const triggers = authorized && mentioned;
@@ -15397,7 +15397,8 @@ async function monitorLinqProvider(opts = {}) {
       roster,
       requireMention: groupCfg?.requireMention ?? true,
       mentionPatterns,
-      ownMessageIds: own
+      ownMessageIds: own,
+      mentionsMe: data.mentions_me === true
     });
     logVerbose(`linq group ${chatId}: ${sender} \u2014 ${decision.reason}`);
     if (!decision.triggers) {

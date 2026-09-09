@@ -75,6 +75,43 @@ describe("group turns: the roster gate and the mention gate", () => {
     expect(d).toMatchObject({ authorized: false, triggers: false });
   });
 
+  // The whole point of `mentions_me`: on WhatsApp the @-mention carries a LID
+  // (`@82094759895231`), never the line's phone number, so nothing in the text
+  // is matchable. Only the bridge knows its own jid and lid, so it decides.
+  it("a real @-mention triggers a turn even though the text names nobody", () => {
+    const d = decideGroupTurn({
+      ...base,
+      sender: "+84912357477",
+      text: "@82094759895231 tell me the newest opportunities",
+      mentionsMe: true,
+    });
+    expect(d).toMatchObject({ authorized: true, mentioned: true, triggers: true });
+  });
+
+  it("that same text without the flag is context only — the LID matches nothing", () => {
+    const d = decideGroupTurn({
+      ...base,
+      sender: "+84912357477",
+      text: "@82094759895231 tell me the newest opportunities",
+    });
+    expect(d).toMatchObject({ authorized: true, mentioned: false, triggers: false });
+  });
+
+  it("an @-mention still does not let a guest through", () => {
+    const d = decideGroupTurn({
+      ...base,
+      sender: "+14155550142",
+      text: "@82094759895231 status?",
+      mentionsMe: true,
+    });
+    expect(d).toMatchObject({ authorized: false, triggers: false });
+  });
+
+  it("typing the name keeps working — it is all iMessage has", () => {
+    const d = decideGroupTurn({ ...base, sender: "+84912357477", text: "PA status?", mentionsMe: false });
+    expect(d.triggers).toBe(true);
+  });
+
   it("a reply to the assistant's own message counts as addressing it", () => {
     const d = decideGroupTurn({
       ...base,

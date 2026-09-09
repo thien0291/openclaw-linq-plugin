@@ -28,6 +28,19 @@ export type LinqMessageReceivedData = {
   /** Participant handles as the provider last reported them. */
   participants?: string[];
   chat_display_name?: string;
+  /**
+   * The transport says this assistant's own account was @-mentioned.
+   *
+   * Decided upstream, on purpose. A chat app that has real mentions sends the
+   * mentioned party's own id, and on WhatsApp that is a LID
+   * (`82094759895231`) — never the line's phone number — so the mention
+   * cannot be recognised from the message text, which is all this plugin has.
+   * Only the bridge holding the session knows its own jid AND lid, so it is
+   * the only thing that can answer "was that me". iMessage has no mention
+   * object at all and never sets this; there, `mentionPatterns` remain the
+   * whole mechanism.
+   */
+  mentions_me?: boolean;
 };
 
 /** Per-group settings, keyed by the chat id the provider delivers. */

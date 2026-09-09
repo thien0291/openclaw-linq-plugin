@@ -169,8 +169,11 @@ function isAllowedLinqSender(allowFrom: string[], sender: string): boolean {
 //   1. the sender gate — is this handle on the assistant's roster
 //      (groupAllowFrom, else allowFrom plus pairing approvals)? A guest never
 //      triggers a turn, and never gets a pairing code in a group.
-//   2. the mention gate — was the assistant named (mentionPatterns, since
-//      iMessage has no @-mention object) or replied to?
+//   2. the mention gate — was the assistant @-mentioned (`mentions_me`, which
+//      only the transport can decide: WhatsApp puts a LID in the mention, not
+//      the line's number, so the text never contains anything matchable),
+//      named in the text (mentionPatterns, the only mechanism iMessage has),
+//      or replied to?
 
 export type GroupLine = { at: string; from: string; name: string; text: string };
 
@@ -209,13 +212,19 @@ export function decideGroupTurn(params: {
   requireMention: boolean;
   mentionPatterns: RegExp[];
   ownMessageIds: Set<string>;
+  /** The transport recognised its own account in the message's mention list. */
+  mentionsMe?: boolean;
 }): GroupTurnDecision {
   if (params.groupPolicy === "disabled") {
     return { authorized: false, mentioned: false, triggers: false, reason: "groups are disabled" };
   }
   const authorized =
     params.groupPolicy === "open" ? true : isAllowedLinqSender(params.roster, params.sender);
-  const named = params.mentionPatterns.some((re) => re.test(params.text));
+  // A real @-mention counts on its own. Typing the name still works — it is
+  // the only mechanism iMessage has, and someone who writes the name rather
+  // than reaching for the mention picker means the same thing.
+  const named =
+    Boolean(params.mentionsMe) || params.mentionPatterns.some((re) => re.test(params.text));
   const replied = Boolean(params.replyToId && params.ownMessageIds.has(params.replyToId));
   const mentioned = !params.requireMention || named || replied;
   const triggers = authorized && mentioned;
@@ -415,6 +424,7 @@ export async function monitorLinqProvider(opts: MonitorLinqOpts = {}): Promise<v
       requireMention: groupCfg?.requireMention ?? true,
       mentionPatterns,
       ownMessageIds: own,
+      mentionsMe: data.mentions_me === true,
     });
     logVerbose(`linq group ${chatId}: ${sender} — ${decision.reason}`);
     if (!decision.triggers) {
